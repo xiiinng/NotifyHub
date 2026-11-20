@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+celerybeat-schedule*
+*.log
+
+# Database files and dumps
+*.db
+*.sqlite
+*.sqlite3
+*.dump
+
+# Coverage and type-check caches
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# 环境变量
+.env
+.env.*
+!.env.example
+backend/.env
+
+# IDE
+.idea/
+.vscode/
+
+# Node dependencies (all directories)
+node_modules/
+
+# 前端构建产物
+frontend/dist/
+frontend/.vite/
+
+# 系统
+.DS_Store
+Thumbs.db

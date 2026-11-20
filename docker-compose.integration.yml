@@ -1,0 +1,141 @@
+# 独立集成测试栈：不挂载开发数据卷，不使用开发数据库/Redis
+# 启动示例（密钥不写入文件）：
+#   IT_JWT_SECRET=... IT_POSTGRES_PASSWORD=... IT_REDIS_PASSWORD=... \
+#   docker compose -p notifyhub-it -f docker-compose.integration.yml up -d --build
+name: notifyhub-it
+
+x-it-env: &it-env
+  DATABASE_URL: postgresql+psycopg://notifyhub_it:${IT_POSTGRES_PASSWORD:?IT_POSTGRES_PASSWORD is required}@postgres-it:5432/notifyhub_it_test
+  REDIS_URL: redis://:${IT_REDIS_PASSWORD:?IT_REDIS_PASSWORD is required}@redis-it:6379/0
+  ENVIRONMENT: test
+  LOG_LEVEL: INFO
+  JWT_SECRET_KEY: ${IT_JWT_SECRET:?IT_JWT_SECRET is required}
+  ALLOW_FAILURE_SIMULATION: "true"
+  MAX_NOTIFICATION_RETRIES: "1"
+  RETRY_BACKOFF_BASE_SECONDS: "1"
+  PROCESSING_TIMEOUT_SECONDS: "10"
+  DISPATCH_STALE_SECONDS: "5"
+  NOTIFICATION_SOFT_TIME_LIMIT_SECONDS: "5"
+  NOTIFICATION_TIME_LIMIT_SECONDS: "8"
+  EXTERNAL_DELIVERY_TIMEOUT_SECONDS: "3"
+  TRUST_PROXY_HEADERS: "false"
+  LOGIN_RATE_LIMIT_IP_MAX: "100"
+  LOGIN_RATE_LIMIT_IP_WINDOW: "60"
+  LOGIN_RATE_LIMIT_EMAIL_MAX: "5"
+  LOGIN_RATE_LIMIT_EMAIL_WINDOW: "300"
+
+services:
+  postgres-it:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: notifyhub_it_test
+      POSTGRES_USER: notifyhub_it
+      POSTGRES_PASSWORD: ${IT_POSTGRES_PASSWORD:?IT_POSTGRES_PASSWORD is required}
+    ports:
+      - "127.0.0.1:55432:5432"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\"",
+        ]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    restart: "no"
+
+  redis-it:
+    image: redis:7-alpine
+    environment:
+      REDIS_PASSWORD: ${IT_REDIS_PASSWORD:?IT_REDIS_PASSWORD is required}
+      REDISCLI_AUTH: ${IT_REDIS_PASSWORD:?IT_REDIS_PASSWORD is required}
+    command:
+      [
+        "sh",
+        "-c",
+        "exec redis-server --appendonly no --requirepass \"$$REDIS_PASSWORD\"",
+      ]
+    ports:
+      - "127.0.0.1:56379:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    restart: "no"
+
+  migrate-it:
+    build: ./backend
+    image: notifyhub-backend:local
+    environment: *it-env
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres-it:
+        condition: service_healthy
+    restart: "no"
+
+  api-it:
+    image: notifyhub-backend:local
+    environment: *it-env
+    ports:
+      - "127.0.0.1:18080:8000"
+    depends_on:
+      migrate-it:
+        condition: service_completed_successfully
+      postgres-it:
+        condition: service_healthy
+      redis-it:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: "no"
+
+  worker-it:
+    image: notifyhub-backend:local
+    environment: *it-env
+    command:
+      [
+        "celery",
+        "-A",
+        "app.tasks.celery_app:celery_app",
+        "worker",
+        "--loglevel=INFO",
+        "--concurrency=1",
+      ]
+    depends_on:
+      migrate-it:
+        condition: service_completed_successfully
+      postgres-it:
+        condition: service_healthy
+      redis-it:
+        condition: service_healthy
+    restart: "no"
+
+  beat-it:
+    image: notifyhub-backend:local
+    environment: *it-env
+    command:
+      [
+        "celery",
+        "-A",
+        "app.tasks.celery_app:celery_app",
+        "beat",
+        "--loglevel=INFO",
+        "--schedule=/tmp/celerybeat-schedule",
+      ]
+    depends_on:
+      migrate-it:
+        condition: service_completed_successfully
+      redis-it:
+        condition: service_healthy
+    restart: "no"

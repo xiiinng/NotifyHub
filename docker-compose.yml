@@ -1,0 +1,185 @@
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-notifyhub}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}@postgres:5432/${POSTGRES_DB:-notifyhub}
+  REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD is required}@redis:6379/0
+  ENVIRONMENT: ${ENVIRONMENT:-development}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  JWT_SECRET_KEY: ${JWT_SECRET_KEY:?JWT_SECRET_KEY is required}
+  ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-60}
+  CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:5173}
+  ALLOW_FAILURE_SIMULATION: ${ALLOW_FAILURE_SIMULATION:-false}
+  MAX_NOTIFICATION_RETRIES: ${MAX_NOTIFICATION_RETRIES:-3}
+  RETRY_BACKOFF_BASE_SECONDS: ${RETRY_BACKOFF_BASE_SECONDS:-5}
+  PROCESSING_TIMEOUT_SECONDS: ${PROCESSING_TIMEOUT_SECONDS:-300}
+  DISPATCH_STALE_SECONDS: ${DISPATCH_STALE_SECONDS:-120}
+  NOTIFICATION_SOFT_TIME_LIMIT_SECONDS: ${NOTIFICATION_SOFT_TIME_LIMIT_SECONDS:-240}
+  NOTIFICATION_TIME_LIMIT_SECONDS: ${NOTIFICATION_TIME_LIMIT_SECONDS:-280}
+  EXTERNAL_DELIVERY_TIMEOUT_SECONDS: ${EXTERNAL_DELIVERY_TIMEOUT_SECONDS:-10}
+  TRUST_PROXY_HEADERS: ${TRUST_PROXY_HEADERS:-true}
+  LOGIN_RATE_LIMIT_IP_MAX: ${LOGIN_RATE_LIMIT_IP_MAX:-20}
+  LOGIN_RATE_LIMIT_IP_WINDOW: ${LOGIN_RATE_LIMIT_IP_WINDOW:-60}
+  LOGIN_RATE_LIMIT_EMAIL_MAX: ${LOGIN_RATE_LIMIT_EMAIL_MAX:-5}
+  LOGIN_RATE_LIMIT_EMAIL_WINDOW: ${LOGIN_RATE_LIMIT_EMAIL_WINDOW:-300}
+
+x-backend-image: &backend-image
+  image: notifyhub-backend:local
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: notifyhub-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-notifyhub}
+      POSTGRES_USER: ${POSTGRES_USER:-notifyhub}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\"",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: notifyhub-redis
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+    command:
+      [
+        "sh",
+        "-c",
+        "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\"",
+      ]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  migrate:
+    build: ./backend
+    <<: *backend-image
+    container_name: notifyhub-migrate
+    environment: *backend-env
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    <<: *backend-image
+    container_name: notifyhub-backend
+    restart: unless-stopped
+    environment: *backend-env
+    # 限制 Docker DNS 超时，Redis 容器不可用时登录降级不会被 DNS 拖慢太久
+    dns_opt:
+      - "timeout:1"
+      - "attempts:1"
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  worker:
+    <<: *backend-image
+    container_name: notifyhub-worker
+    restart: unless-stopped
+    environment: *backend-env
+    command:
+      [
+        "celery",
+        "-A",
+        "app.tasks.celery_app:celery_app",
+        "worker",
+        "--loglevel=INFO",
+        "--concurrency=2",
+      ]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "celery -A app.tasks.celery_app:celery_app inspect ping --timeout 5",
+        ]
+      interval: 30s
+      timeout: 15s
+      retries: 3
+      start_period: 20s
+
+  beat:
+    <<: *backend-image
+    container_name: notifyhub-beat
+    restart: unless-stopped
+    environment: *backend-env
+    command:
+      [
+        "celery",
+        "-A",
+        "app.tasks.celery_app:celery_app",
+        "beat",
+        "--loglevel=INFO",
+        "--schedule=/tmp/celerybeat-schedule",
+      ]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    image: notifyhub-frontend:local
+    container_name: notifyhub-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1/ || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  postgres_data:
+  redis_data:
