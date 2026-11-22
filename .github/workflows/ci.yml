@@ -79,3 +79,172 @@ jobs:
       - name: Build frontend
         working-directory: frontend
         run: npm run build
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: [backend, frontend]
+
+    env:
+      E2E_BASE_URL: http://127.0.0.1:13001
+      CI: "true"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install --no-audit --no-fund
+
+      - name: Install Playwright Chromium
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Start E2E stack
+        run: docker compose -f docker-compose.e2e.yml up -d --build
+
+      - name: Wait for E2E services
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          compose="docker compose -f docker-compose.e2e.yml"
+          timeout_seconds=120
+          poll_seconds=2
+
+          container_id() {
+            $compose ps -a -q "$1" | head -n 1
+          }
+
+          fail() {
+            echo "::error::$*"
+            exit 1
+          }
+
+          wait_for_migrate() {
+            local start now elapsed id status exit_code
+            start=$(date +%s)
+
+            while true; do
+              id=$(container_id migrate)
+              if [ -z "$id" ]; then
+                fail "migrate 容器不存在"
+              fi
+
+              status=$(docker inspect -f '{{.State.Status}}' "$id" 2>/dev/null || true)
+              exit_code=$(docker inspect -f '{{.State.ExitCode}}' "$id" 2>/dev/null || true)
+
+              if [ "$status" = "exited" ]; then
+                if [ "$exit_code" = "0" ]; then
+                  echo "migrate 已成功退出 (ExitCode=0)"
+                  return 0
+                fi
+                echo "::error::migrate 退出码为 ${exit_code:-unknown}"
+                $compose logs --no-color --tail=100 migrate || true
+                exit 1
+              fi
+
+              if [ "$status" = "dead" ]; then
+                echo "::error::migrate 容器状态为 dead"
+                $compose logs --no-color --tail=100 migrate || true
+                exit 1
+              fi
+
+              now=$(date +%s)
+              elapsed=$((now - start))
+              if [ "$elapsed" -ge "$timeout_seconds" ]; then
+                echo "::error::等待 migrate 完成超时，当前状态=${status:-unknown}"
+                $compose logs --no-color --tail=100 migrate || true
+                exit 1
+              fi
+
+              echo "等待 migrate 完成：status=${status:-unknown} exit_code=${exit_code:-unknown} elapsed=${elapsed}s"
+              sleep "$poll_seconds"
+            done
+          }
+
+          wait_for_health() {
+            local service=$1 start now elapsed id status health
+            start=$(date +%s)
+
+            while true; do
+              id=$(container_id "$service")
+              if [ -z "$id" ]; then
+                fail "$service 容器不存在"
+              fi
+
+              status=$(docker inspect -f '{{.State.Status}}' "$id" 2>/dev/null || true)
+              health=$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' "$id" 2>/dev/null || true)
+
+              if [ "$health" = "healthy" ]; then
+                echo "$service 已就绪 (health=healthy)"
+                return 0
+              fi
+
+              if [ "$health" = "unhealthy" ]; then
+                echo "::error::$service 健康检查失败 (health=unhealthy, status=${status:-unknown})"
+                $compose logs --no-color --tail=100 "$service" || true
+                exit 1
+              fi
+
+              if [ "$health" = "no-healthcheck" ]; then
+                echo "::error::$service 未配置 healthcheck"
+                $compose logs --no-color --tail=100 "$service" || true
+                exit 1
+              fi
+
+              if [ "$status" != "running" ] && [ "$status" != "created" ] && [ "$status" != "restarting" ]; then
+                echo "::error::$service 容器状态异常 (status=${status:-unknown}, health=${health:-unknown})"
+                $compose logs --no-color --tail=100 "$service" || true
+                exit 1
+              fi
+
+              now=$(date +%s)
+              elapsed=$((now - start))
+              if [ "$elapsed" -ge "$timeout_seconds" ]; then
+                echo "::error::等待 $service 就绪超时 (status=${status:-unknown}, health=${health:-unknown})"
+                $compose logs --no-color --tail=100 "$service" || true
+                exit 1
+              fi
+
+              echo "等待 $service 就绪：status=${status:-unknown} health=${health:-unknown} elapsed=${elapsed}s"
+              sleep "$poll_seconds"
+            done
+          }
+
+          wait_for_migrate
+          wait_for_health backend
+          wait_for_health worker
+          wait_for_health frontend
+
+      - name: Run Playwright E2E
+        working-directory: frontend
+        run: npx playwright test --reporter=line,html --timeout=60000
+
+      - name: Collect Docker logs
+        if: failure()
+        run: docker compose -f docker-compose.e2e.yml logs --no-color > e2e-docker.log 2>&1 || true
+
+      - name: Upload Playwright E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-e2e-results
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+            e2e-docker.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Cleanup E2E stack
+        if: always()
+        run: docker compose -f docker-compose.e2e.yml down -v --remove-orphans || echo "::warning::E2E cleanup failed"

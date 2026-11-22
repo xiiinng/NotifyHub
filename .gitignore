@@ -36,6 +36,11 @@ node_modules/
 frontend/dist/
 frontend/.vite/
 
+# Playwright
+frontend/playwright-report/
+frontend/test-results/
+frontend/e2e/.auth/
+
 # 系统
 .DS_Store
 Thumbs.db
