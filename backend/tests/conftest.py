@@ -20,8 +20,10 @@ from sqlalchemy.orm import sessionmaker
 import app.models  # noqa: F401
 from app.core.config import settings
 from app.core.rate_limit import LoginRateLimiter, get_login_limiter
+from app.core.security import hash_password
 from app.database import get_db
 from app.main import app
+from app.models.user import User, UserRole
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
@@ -112,7 +114,9 @@ def clean_tables():
     with engine.begin() as conn:
         conn.execute(
             text(
-                "TRUNCATE notifications, notification_templates, users "
+                "TRUNCATE ticket_notification_events, ticket_comments, "
+                "ticket_history, tickets, notifications, "
+                "notification_templates, users "
                 "RESTART IDENTITY CASCADE"
             )
         )
@@ -219,4 +223,30 @@ def user_b(client):
     return {
         "profile": response.json(),
         "headers": auth_headers(client, email="bob@example.com"),
+    }
+
+
+@pytest.fixture
+def support_user(client, db):
+    user = User(
+        username="support",
+        email="support@example.com",
+        hashed_password=hash_password("Support123!"),
+        role=UserRole.IT_SUPPORT.value,
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return {
+        "profile": {
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "role": user.role,
+            "created_at": user.created_at.isoformat(),
+        },
+        "headers": auth_headers(
+            client, email="support@example.com", password="Support123!"
+        ),
+        "user": user,
     }

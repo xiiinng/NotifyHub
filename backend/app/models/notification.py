@@ -22,6 +22,11 @@ class Notification(Base):
             "user_id",
             "created_at"
         ),
+        Index(
+            "ix_notifications_user_read_at",
+            "user_id",
+            "read_at"
+        ),
     )
 
     id: Mapped[int] = mapped_column(
@@ -29,9 +34,16 @@ class Notification(Base):
         index=True
     )
 
+    # 收件人。保留 user_id 字段名以兼容已有数据和 API。
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
+        index=True
+    )
+
+    sender_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
         index=True
     )
 
@@ -87,4 +99,17 @@ class Notification(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
         nullable=False
+    )
+
+    read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True
+    )
+
+    # 自动业务通知的幂等键；手动通知保持 NULL。
+    dedupe_key: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        unique=True,
+        index=True
     )

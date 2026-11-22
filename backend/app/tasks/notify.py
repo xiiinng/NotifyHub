@@ -9,6 +9,7 @@ from app.core.logging import get_logger
 from app.database import SessionLocal
 from app.models.notification import Notification
 from app.schemas.notification import NotificationStatus
+from app.services import ticket_service
 from app.services.delivery import deliver_notification
 from app.tasks.celery_app import celery_app
 
@@ -308,3 +309,20 @@ def requeue_stuck_notifications_task() -> dict:
         "failed_processing": failed,
         "requeued": requeued,
     }
+
+
+@celery_app.task(
+    bind=True,
+    max_retries=3,
+    name="notifyhub.check_ticket_sla",
+)
+def check_ticket_sla_task(self) -> dict[str, int]:
+    """每 5 分钟检查临近到期和已超时工单。"""
+    with SessionLocal() as db:
+        try:
+            result = ticket_service.check_ticket_sla(db)
+            logger.info("工单 SLA 检查任务完成 result=%s", result)
+            return result
+        except Exception as exc:
+            logger.exception("工单 SLA 检查任务失败")
+            raise self.retry(exc=exc, countdown=60)

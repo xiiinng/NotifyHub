@@ -3,10 +3,14 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
+from app.models.user import UserRole
+
 _USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_一-龥-]+$")
 
 
 class UserRegister(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     username: str = Field(min_length=3, max_length=50)
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
@@ -60,4 +64,14 @@ class UserRead(BaseModel):
     id: int
     username: str
     email: EmailStr
+    role: UserRole
     created_at: datetime
+
+
+class UserDirectoryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    username: str
+    email: EmailStr
+    role: UserRole

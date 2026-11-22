@@ -23,6 +23,10 @@ x-e2e-env: &e2e-env
   LOGIN_RATE_LIMIT_IP_WINDOW: "60"
   LOGIN_RATE_LIMIT_EMAIL_MAX: "5"
   LOGIN_RATE_LIMIT_EMAIL_WINDOW: "300"
+  # 仅用于独立 E2E 数据库的测试账号。
+  IT_SUPPORT_EMAIL: support-e2e@example.com
+  IT_SUPPORT_USERNAME: support-e2e
+  IT_SUPPORT_PASSWORD: e2e-support-only-password1
 
 x-backend-image: &backend-image
   image: notifyhub-backend-e2e:local
@@ -79,12 +83,25 @@ services:
     networks:
       - e2e
 
+  seed-it-support:
+    <<: *backend-image
+    restart: "no"
+    environment: *e2e-env
+    command: ["python", "-m", "app.cli", "create-it-support"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - e2e
+
   backend:
     <<: *backend-image
     restart: "no"
     environment: *e2e-env
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      seed-it-support:
         condition: service_completed_successfully
       postgres:
         condition: service_healthy

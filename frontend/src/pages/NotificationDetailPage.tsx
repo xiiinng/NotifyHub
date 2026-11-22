@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { getErrorMessage } from '../api/client'
-import { getNotificationApi, isActiveStatus } from '../api/notifications'
+import {
+  getNotificationApi,
+  isActiveStatus,
+  markNotificationReadApi,
+} from '../api/notifications'
 import StatusBadge from '../components/StatusBadge'
 import type { Notification } from '../types'
 
@@ -47,6 +51,19 @@ export default function NotificationDetailPage() {
     return () => window.clearInterval(timer)
   }, [notification, load])
 
+  async function markRead() {
+    if (!notification || notification.read_at) {
+      return
+    }
+    try {
+      const updated = await markNotificationReadApi(notification.id)
+      setNotification(updated)
+      window.dispatchEvent(new Event('notifyhub:unread-changed'))
+    } catch (err) {
+      setError(getErrorMessage(err, '标记已读失败'))
+    }
+  }
+
   return (
     <div className="page">
       <header className="page-header">
@@ -54,9 +71,16 @@ export default function NotificationDetailPage() {
           <h1>通知详情</h1>
           <p className="muted">通知 #{Number.isInteger(notificationId) ? notificationId : '-'}</p>
         </div>
-        <Link className="button ghost" to="/notifications">
-          返回列表
-        </Link>
+        <div className="toolbar">
+          {notification && !notification.read_at && (
+            <button className="button" type="button" onClick={() => void markRead()}>
+              标为已读
+            </button>
+          )}
+          <Link className="button ghost" to="/notifications">
+            返回列表
+          </Link>
+        </div>
       </header>
 
       {error && <div className="alert error">{error}</div>}
@@ -76,6 +100,12 @@ export default function NotificationDetailPage() {
             <span>{notification.retry_count}</span>
             <span>模板</span>
             <span>{notification.template_id ? `#${notification.template_id}` : '无（手动创建）'}</span>
+            <span>发送者</span>
+            <span>
+              {notification.sender_id ? `用户 #${notification.sender_id}` : '系统'}
+            </span>
+            <span>阅读状态</span>
+            <span>{notification.read_at ? '已读' : '未读'}</span>
             <span>创建时间</span>
             <span>{formatTime(notification.created_at)}</span>
             <span>更新时间</span>

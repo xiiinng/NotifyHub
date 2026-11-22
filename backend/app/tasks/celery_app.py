@@ -38,6 +38,10 @@ celery_app.conf.update(
         "requeue-stuck-notifications": {
             "task": "notifyhub.requeue_stuck",
             "schedule": 60.0,
-        }
+        },
+        "check-ticket-sla": {
+            "task": "notifyhub.check_ticket_sla",
+            "schedule": 300.0,
+        },
     },
 )

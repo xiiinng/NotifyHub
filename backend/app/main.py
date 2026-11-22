@@ -10,7 +10,7 @@ from app.core.config import settings
 from app.core.exceptions import AppError
 from app.core.logging import setup_logging
 from app.database import engine
-from app.routers import auth, notifications, templates
+from app.routers import auth, notifications, templates, tickets, users
 
 setup_logging()
 logger = logging.getLogger(__name__)
@@ -19,8 +19,8 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title=settings.app_name,
-    description="基于 FastAPI + Redis + Celery 的异步站内通知平台",
-    version="1.0.0",
+    description="基于 FastAPI + Celery 的企业 IT 工单管理与异步通知平台",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -32,8 +32,10 @@ app.add_middleware(
 )
 
 app.include_router(auth.router, prefix=settings.api_prefix)
+app.include_router(users.router, prefix=settings.api_prefix)
 app.include_router(templates.router, prefix=settings.api_prefix)
 app.include_router(notifications.router, prefix=settings.api_prefix)
+app.include_router(tickets.router, prefix=settings.api_prefix)
 
 
 @app.exception_handler(AppError)

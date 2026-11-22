@@ -5,9 +5,10 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import ForbiddenError
 from app.core.security import decode_access_token
 from app.database import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 
 bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -48,3 +49,12 @@ def get_current_user(
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def require_it_support(current_user: CurrentUser) -> User:
+    if current_user.role != UserRole.IT_SUPPORT.value:
+        raise ForbiddenError("需要 IT 支持人员权限")
+    return current_user
+
+
+ItSupportUser = Annotated[User, Depends(require_it_support)]

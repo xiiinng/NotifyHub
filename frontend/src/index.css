@@ -629,3 +629,196 @@ textarea {
     max-width: 180px;
   }
 }
+
+/* ---------- 工单与通知扩展 ---------- */
+
+.role-label {
+  font-size: 11px;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.nav-badge {
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.ticket-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ticket-status-pending {
+  color: #92400e;
+  background: #fef3c7;
+}
+
+.ticket-status-in_progress {
+  color: #1d4ed8;
+  background: #dbeafe;
+}
+
+.ticket-status-resolved {
+  color: #15803d;
+  background: #dcfce7;
+}
+
+.ticket-status-closed {
+  color: #475569;
+  background: #e2e8f0;
+}
+
+.ticket-priority-low {
+  color: #475569;
+  background: #f1f5f9;
+}
+
+.ticket-priority-medium {
+  color: #0369a1;
+  background: #e0f2fe;
+}
+
+.ticket-priority-high {
+  color: #c2410c;
+  background: #ffedd5;
+}
+
+.ticket-priority-urgent {
+  color: #b91c1c;
+  background: #fee2e2;
+}
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.search-form {
+  display: flex;
+  gap: 8px;
+  flex: 1 1 260px;
+}
+
+.search-form input {
+  flex: 1;
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.text-danger {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.stat-grid.compact {
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  margin-bottom: 0;
+}
+
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.stat-card span {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.stat-card strong {
+  font-size: 26px;
+  line-height: 1.1;
+}
+
+.stat-danger strong {
+  color: var(--danger);
+}
+
+.timeline,
+.comment-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.timeline li,
+.comment-list li {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.timeline li:last-child,
+.comment-list li:last-child {
+  border-bottom: none;
+}
+
+.timeline p,
+.comment-list p {
+  margin: 4px 0 0;
+}
+
+.row-unread {
+  background: #fffbeb;
+}
+
+.unread-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 7px;
+  border-radius: 50%;
+  background: var(--danger);
+  vertical-align: middle;
+}
+
+.form-card h2 {
+  margin-top: 0;
+}
+
+@media (max-width: 860px) {
+  .filter-bar {
+    align-items: stretch;
+  }
+
+  .search-form {
+    flex-basis: 100%;
+  }
+}

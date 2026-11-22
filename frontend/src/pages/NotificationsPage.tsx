@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { getErrorMessage } from '../api/client'
-import { isActiveStatus, listNotificationsApi } from '../api/notifications'
+import {
+  isActiveStatus,
+  listNotificationsApi,
+  markAllNotificationsReadApi,
+  markNotificationReadApi,
+} from '../api/notifications'
 import StatusBadge from '../components/StatusBadge'
 import type { Notification, NotificationStatus } from '../types'
 
@@ -69,6 +74,35 @@ export default function NotificationsPage() {
     return () => window.clearInterval(timer)
   }, [items, load])
 
+  async function markRead(item: Notification) {
+    if (item.read_at) {
+      return
+    }
+    try {
+      const updated = await markNotificationReadApi(item.id)
+      setItems((current) =>
+        current.map((row) => (row.id === updated.id ? updated : row)),
+      )
+      window.dispatchEvent(new Event('notifyhub:unread-changed'))
+    } catch (err) {
+      setError(getErrorMessage(err, '标记已读失败'))
+    }
+  }
+
+  async function markAllRead() {
+    try {
+      await markAllNotificationsReadApi()
+      setItems((current) =>
+        current.map((row) =>
+          row.read_at ? row : { ...row, read_at: new Date().toISOString() },
+        ),
+      )
+      window.dispatchEvent(new Event('notifyhub:unread-changed'))
+    } catch (err) {
+      setError(getErrorMessage(err, '全部标记已读失败'))
+    }
+  }
+
   const firstRow = total === 0 ? 0 : (page - 1) * PAGE_SIZE + 1
   const lastRow = Math.min(page * PAGE_SIZE, total)
 
@@ -80,6 +114,7 @@ export default function NotificationsPage() {
           <p className="muted">只展示属于你自己的通知</p>
         </div>
         <div className="toolbar">
+          <span className="muted">未读 {items.filter((item) => !item.read_at).length}</span>
           <select
             value={status}
             onChange={(event) => {
@@ -95,6 +130,14 @@ export default function NotificationsPage() {
           </select>
           <button className="button ghost" type="button" onClick={() => void load()}>
             刷新
+          </button>
+          <button
+            className="button ghost"
+            type="button"
+            onClick={() => void markAllRead()}
+            disabled={items.every((item) => item.read_at)}
+          >
+            全部已读
           </button>
         </div>
       </header>
@@ -123,8 +166,11 @@ export default function NotificationsPage() {
               </thead>
               <tbody>
                 {items.map((item) => (
-                  <tr key={item.id}>
-                    <td>{item.title}</td>
+                  <tr key={item.id} className={item.read_at ? '' : 'row-unread'}>
+                    <td>
+                      {!item.read_at && <span className="unread-dot" />}
+                      {item.title}
+                    </td>
                     <td className="cell-summary">{item.content}</td>
                     <td>
                       <StatusBadge status={item.status} />
@@ -132,6 +178,15 @@ export default function NotificationsPage() {
                     <td>{item.retry_count}</td>
                     <td className="muted">{formatTime(item.created_at)}</td>
                     <td className="actions">
+                      {!item.read_at && (
+                        <button
+                          className="button small"
+                          type="button"
+                          onClick={() => void markRead(item)}
+                        >
+                          标为已读
+                        </button>
+                      )}
                       <Link className="button small" to={`/notifications/${item.id}`}>
                         详情
                       </Link>

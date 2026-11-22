@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom'
 import { getErrorMessage } from '../api/client'
 import { createNotificationApi } from '../api/notifications'
 import { listTemplatesApi } from '../api/templates'
+import { listUserDirectoryApi } from '../api/users'
 import StatusBadge from '../components/StatusBadge'
-import type { Notification, Template } from '../types'
+import type { Notification, Template, UserDirectoryEntry } from '../types'
 
 type Mode = 'template' | 'manual'
 
@@ -18,6 +19,9 @@ export default function SendPage() {
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState<Notification | null>(null)
   const [loadingTemplates, setLoadingTemplates] = useState(true)
+  const [recipients, setRecipients] = useState<UserDirectoryEntry[]>([])
+  const [recipientId, setRecipientId] = useState('')
+  const [recipientQuery, setRecipientQuery] = useState('')
 
   const loadTemplates = useCallback(async () => {
     setLoadingTemplates(true)
@@ -39,6 +43,24 @@ export default function SendPage() {
     void loadTemplates()
   }, [loadTemplates])
 
+  useEffect(() => {
+    let active = true
+    void listUserDirectoryApi(recipientQuery)
+      .then((data) => {
+        if (active) {
+          setRecipients(data)
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setRecipients([])
+        }
+      })
+    return () => {
+      active = false
+    }
+  }, [recipientQuery])
+
   const selectedTemplate = templates.find((item) => item.id === templateId) ?? null
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -57,12 +79,18 @@ export default function SendPage() {
 
     setSubmitting(true)
     try {
+      const recipient =
+        recipientId ? { recipient_user_id: Number(recipientId) } : {}
       const notification =
         mode === 'template'
-          ? await createNotificationApi({ template_id: Number(templateId) })
+          ? await createNotificationApi({
+              template_id: Number(templateId),
+              ...recipient,
+            })
           : await createNotificationApi({
               title: title.trim(),
               content: content.trim(),
+              ...recipient,
             })
       setResult(notification)
       setTitle('')
@@ -95,6 +123,29 @@ export default function SendPage() {
       )}
 
       <form className="card form-card" onSubmit={handleSubmit} noValidate>
+        <label className="field">
+          <span>搜索接收人</span>
+          <input
+            value={recipientQuery}
+            onChange={(event) => setRecipientQuery(event.target.value)}
+            placeholder="输入姓名或邮箱筛选"
+          />
+        </label>
+        <label className="field">
+          <span>接收人</span>
+          <select
+            value={recipientId}
+            onChange={(event) => setRecipientId(event.target.value)}
+          >
+            <option value="">仅自己</option>
+            {recipients.map((recipient) => (
+              <option key={recipient.id} value={recipient.id}>
+                {recipient.username}（{recipient.email}）
+              </option>
+            ))}
+          </select>
+        </label>
+
         <div className="segmented">
           <button
             type="button"
